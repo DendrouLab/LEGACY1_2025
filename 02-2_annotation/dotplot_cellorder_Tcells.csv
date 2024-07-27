@@ -1,0 +1,21 @@
+annotation,unicode_annotation,type
+CD4_Naive,CD4⁺ naive T,CD4
+CD4_Naive_SOX4pos,CD4⁺ SOX4⁺ naive T,CD4
+CD4_ARHGAP15hi_MThi,CD4⁺ ARHGAP15ʰⁱ MTʰⁱ,CD4
+CD4_BACH2hi_MThi,CD4⁺ BACH2ʰⁱ MTʰⁱ,CD4
+CD4_CCR4hi,CD4⁺ CCR4ʰⁱ,CD4
+CD4_CCR6hi,CD4⁺ CCR6ʰⁱ,CD4
+CD4_CD69hi,CD4⁺ CD69ʰⁱ,CD4
+CD4_CTLA4pos,CD4⁺ CTLA4⁺,CD4
+CD4_Treg_Naive,CD4⁺ naive Treg,CD4
+CD4_Treg_Memory,CD4⁺ memory Treg,CD4
+CD4_Tfh,CD4⁺ Tfh,CD4
+CD4_IFNresp,CD4⁺ IFNʰⁱ,CD4
+CD8_Naive,CD8⁺ naive T,CD8
+CD8_GZMK,CD8⁺ GZMK,CD8
+CD8_GZMB,CD8⁺ GZMB,CD8
+MAIT,MAIT,Innate
+gD,γδ,Innate
+NK_NCAMhiFCGR3Alow,CD56ᵇʳⁱᵍʰᵗ CD16ˡᵒ NK,NK
+NK_NCAMposFCGR3Ahi,CD56⁺ CD16ʰⁱ NK,NK
+ILC3,ILC3,Innate

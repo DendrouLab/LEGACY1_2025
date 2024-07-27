@@ -1,0 +1,43 @@
+annotation,unicode_annotation
+CD4_Naive,CD4⁺ naive T
+CD4_Naive_SOX4pos,CD4⁺ SOX4⁺ naive T
+CD4_Tfh,CD4⁺ Tfh
+CD4_Treg_Naive,CD4⁺ naive Treg
+CD4_Treg_Memory,CD4⁺ memory Treg
+CD4_CD69hi,CD4⁺ CD69ʰⁱ
+CD4_CTLA4pos,CD4⁺ CTLA4⁺
+CD4_CCR6hi,CD4⁺ CCR6ʰⁱ
+CD4_CCR4hi,CD4⁺ CCR4ʰⁱ
+CD4_IFNresp,CD4⁺ IFNʰⁱ
+CD4_BACH2hi_MThi,CD4⁺ BACH2ʰⁱ MTʰⁱ
+CD4_ARHGAP15hi_MThi,CD4⁺ ARHGAP15ʰⁱ MTʰⁱ
+CD8_Naive,CD8⁺ naive T
+CD8_GZMK,CD8⁺ GZMK
+CD8_GZMB,CD8⁺ GZMB
+ILC3,ILC3
+gD,γδ
+MAIT,MAIT
+NK_NCAMposFCGR3Ahi,CD56⁺ CD16ʰⁱ NK
+NK_NCAMhiFCGR3Alow,CD56ᵇʳⁱᵍʰᵗ CD16ˡᵒ NK
+B_Naive,Naive B
+B_Naive_FOXP1hi,Naive FOXP1ʰⁱ B
+B_preTS,TS/pre B
+B_DN_MThi,DN MTʰⁱ B
+B_IFITM1hi,IFITM1ʰⁱ B
+B_MZB,MZ B
+B_CSM,CSM B
+B_GC_LZ,GC LZ B
+B_GC_DZ,GC DZ B
+B_PC,Plasma cell
+CD14pos_monocyte,CD14⁺ mono
+C1QApos_macrophage,C1QA⁺ macro
+C1QAposNRP1hi_macrophage,C1QA⁺ NRP1ʰⁱ macro
+FCGR3Apos_monocyte,CD16⁺ mono
+CD1Cpos_DC,CD1C⁺ DC
+LAMP3pos_DC,LAMP3⁺ DC
+LAMP3posIRF7pos_DC,LAMP3⁺ IRF7⁺ DC
+XCR1pos_DC,XCR1⁺ DC
+pDC,pDC
+RiboHi_DC,Ribosomalʰⁱ DC
+Mast,Mast
+fibroblast,Fibroblast
