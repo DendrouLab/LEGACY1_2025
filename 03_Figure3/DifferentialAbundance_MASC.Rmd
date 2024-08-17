@@ -1,0 +1,119 @@
+---
+title: "DifferentialAbundance_MASC"
+output: console
+---
+
+# Setup
+## Dir
+```{r}
+out_dir <- ""
+```
+
+## Library
+```{r}
+library(dittoSeq)
+library(SingleCellExperiment)
+#library(qs)
+library(ggpubr)
+```
+
+## Import
+```{r}
+sce <- readRDS("sce.rds")
+
+metadat <- read.csv("metadata.csv")
+metadat <- metadat[,-1]
+```
+
+## Colours
+```{r}
+cols <- randomcoloR::distinctColorPalette(length(unique(sce$donor_id)))
+```
+
+## Remove subsets/ samples with low numbers
+```{r}
+remove_samples <- c("LEG1028-20L", "LEG1017-20L", "LEG1006-20L", "LEG1006-20R", "LEG1019-20L")
+remove_celltypes <- c("LAMP3posIRF7pos_DC", "C1QApos_macrophage", "C1QAposNRP1hi_macrophage", "fibroblast", "LAMP3pos_DC", "Mast")
+
+# Subset object to remove those samples
+sce <- subset(sce, , (!(sample_id %in% remove_samples))&!(celltype %in% remove_celltypes))
+sce$celltype <- droplevels(sce$celltype)
+sce$sample_id <- droplevels(sce$sample_id)
+```
+
+
+# MASC fixed effect weight and days V4 after V3
+cd45contra_MASC: model nearly unidentificable...very large eigenvalue
+```{r}
+cd45V2_MASC <- MASC:::MASC(data = cd45V2_masc_df, cluster = cd45V2_masc_df$celltype, contrast = "vaccineside_type", random_effects = "donor_id", fixed_effects = c("days_V4afterV3", "weight_kg"))
+
+cd45V4_MASC <- MASC:::MASC(data = cd45V4_masc_df, cluster = cd45V4_masc_df$celltype, contrast = "vaccineside_type", random_effects = "donor_id", fixed_effects = c("days_V4afterV3", "weight_kg"))
+cd45ipsi_MASC <- MASC:::MASC(data = cd45ipsi_masc_df, cluster = cd45ipsi_masc_df$celltype, contrast = "visit_id", random_effects = "donor_id", fixed_effects = c("days_V4afterV3", "weight_kg"))
+cd45contra_MASC <- MASC:::MASC(data = cd45contra_masc_df, cluster = cd45contra_masc_df$celltype, contrast = "visit_id", random_effects = "donor_id", fixed_effects = c("days_V4afterV3", "weight_kg"))
+
+# Add p-adjust BH
+cd45V2_MASC <- cd45V2_MASC %>% dplyr::mutate(BH = p.adjust(model.pvalue, method = "BH")) %>% dplyr::arrange(model.pvalue)
+cd45V4_MASC <- cd45V4_MASC %>% dplyr::mutate(BH = p.adjust(model.pvalue, method = "BH")) %>% dplyr::arrange(model.pvalue)
+cd45ipsi_MASC <- cd45ipsi_MASC %>% dplyr::mutate(BH = p.adjust(model.pvalue, method = "BH")) %>% dplyr::arrange(model.pvalue)
+cd45contra_MASC <- cd45contra_MASC %>% dplyr::mutate(BH = p.adjust(model.pvalue, method = "BH")) %>% dplyr::arrange(model.pvalue)
+
+
+cd45ipsi_MASC$BH_sig <- dplyr::if_else(as.numeric(cd45ipsi_MASC$BH) < 0.05, "p<0.05", "NS")
+cd45contra_MASC$BH_sig <- dplyr::if_else(as.numeric(cd45contra_MASC$BH) < 0.05, "p<0.05", "NS")
+cd45V2_MASC$BH_sig <- dplyr::if_else(as.numeric(cd45V2_MASC$BH) < 0.05, "p<0.05", "NS")
+cd45V4_MASC$BH_sig <- dplyr::if_else(as.numeric(cd45V4_MASC$BH) < 0.05, "p<0.05", "NS")
+
+
+# Plotting results
+plt <- ggplot(cd45ipsi_MASC, aes(x = visit_idV4.OR, y = reorder(cluster, visit_idV4.OR), col = BH_sig)) +
+          geom_vline(aes(xintercept = 1), size = .25, linetype = "dashed") +
+          geom_errorbarh(aes(xmax = visit_idV4.OR.95pct.ci.upper, xmin = visit_idV4.OR.95pct.ci.lower), size = .5, height = .2, color = "gray50") +
+          geom_point(size = 3.5) + 
+          scale_color_manual(values=c("gray50", "#E69F00")) +
+          labs(title = "Ipsilateral comparison between V4 vs V2", x = "Odds Ratio", y = "") +
+          theme_bw() +
+          labs_pubr()
+ggsave(plt, filename = file.path(out_dir, "MASC_ipsilateralcomparison_V4vsV2_fixedeffectWeightandV4days.png"), width = 8, height = 7)
+ggsave(plt, filename = file.path(out_dir, "MASC_ipsilateralcomparison_V4vsV2_fixedeffectWeightandV4days.pdf"), width = 8, height = 7)
+
+plt <- ggplot(cd45contra_MASC, aes(x = visit_idV4.OR, y = reorder(cluster, visit_idV4.OR), col = BH_sig)) +
+          geom_vline(aes(xintercept = 1), size = .25, linetype = "dashed") +
+          geom_errorbarh(aes(xmax = visit_idV4.OR.95pct.ci.upper, xmin = visit_idV4.OR.95pct.ci.lower), size = .5, height = .2, color = "gray50") +
+          geom_point(size = 3.5) + 
+          scale_color_manual(values=c("gray50", "#E69F00")) +
+          labs(title = "Contralateral comparison between V4 vs V2", x = "Odds Ratio", y = "") +
+          theme_bw() +
+          labs_pubr()
+ggsave(plt, filename = file.path(out_dir, "MASC_contralateralcomparison_V4vsV2_fixedeffectWeightandV4days.png"), width = 8, height = 7)
+ggsave(plt, filename = file.path(out_dir, "MASC_contralateralcomparison_V4vsV2_fixedeffectWeightandV4days.pdf"), width = 8, height = 7)
+
+plt <- ggplot(cd45V4_MASC, aes(x = vaccineside_typeipsilateral.OR, y = reorder(cluster, vaccineside_typeipsilateral.OR), col = BH_sig)) +
+          geom_vline(aes(xintercept = 1), size = .25, linetype = "dashed") +
+          geom_errorbarh(aes(xmax = vaccineside_typeipsilateral.OR.95pct.ci.upper, xmin = vaccineside_typeipsilateral.OR.95pct.ci.lower), size = .5, height = .2, color = "gray50") +
+          geom_point(size = 3.5) + 
+          scale_color_manual(values=c("gray50", "#E69F00")) +
+          labs(title = "Visit 4 comparison between Ipsilateral vs Contralateral", x = "Odds Ratio", y = "") +
+          theme_bw() +
+          labs_pubr()
+ggsave(plt, filename = file.path(out_dir, "MASC_V4comparison_IpsivsContra_fixedeffectWeightandV4days.png"), width = 8, height = 7)
+ggsave(plt, filename = file.path(out_dir, "MASC_V4comparison_IpsivsContra_fixedeffectWeightandV4days.pdf"), width = 8, height = 7)
+
+
+plt <- ggplot(cd45V2_MASC, aes(x = vaccineside_typeipsilateral.OR, y = reorder(cluster, vaccineside_typeipsilateral.OR), col = BH_sig)) +
+          geom_vline(aes(xintercept = 1), size = .25, linetype = "dashed") +
+          geom_errorbarh(aes(xmax = vaccineside_typeipsilateral.OR.95pct.ci.upper, xmin = vaccineside_typeipsilateral.OR.95pct.ci.lower), size = .5, height = .2, color = "gray50") +
+          geom_point(size = 3.5) + 
+          scale_color_manual(values=c("gray50", "#E69F00")) +
+          labs(title = "Visit 2 comparison between Ipsilateral vs Contralateral", x = "Odds Ratio", y = "") +
+          theme_bw() +
+          labs_pubr()
+ggsave(plt, filename = file.path(out_dir, "MASC_V2comparison_IpsivsContra_fixedeffectWeightandV4days.png"), width = 8, height = 7)
+ggsave(plt, filename = file.path(out_dir, "MASC_V2comparison_IpsivsContra_fixedeffectWeightandV4days.pdf"), width = 8, height = 7)
+
+# Save csv
+write.csv(cd45ipsi_MASC, file = file.path(out_dir, "MASC_ipsilateralcomparison_V4vsV2_fixedeffectWeightandV4days_data.csv"))
+write.csv(cd45contra_MASC, file = file.path(out_dir, "MASC_contralateralcomparison_V4vsV2_fixedeffectWeightandV4days_data.csv"))
+write.csv(cd45V4_MASC, file = file.path(out_dir, "MASC_V4comparison_IpsivsContra_fixedeffectWeightandV4days_data.csv"))
+write.csv(cd45V2_MASC, file = file.path(out_dir, "MASC_V2comparison_IpsivsContra_fixedeffectWeightandV4days_data.csv"))
+
+```
