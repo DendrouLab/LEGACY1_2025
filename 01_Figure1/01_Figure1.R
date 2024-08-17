@@ -122,3 +122,20 @@ ggplot(no_outliers_V4contra,aes(days_V4afterV3, totalcount_PostVaxContra)) +
   stat_regline_equation(label.x = 3, label.y = 2000000, size = 4) +
   theme_pubr()
 ggsave(filename = file.path(dir, "V4TotalCellCountContra_daysV4afterV3_noOutliers.pdf"))
+
+# Comparing LN area with number days post-vax
+ggplot(us_dat,aes(days_V4afterV3, V4_Ipsi_EllipseArea_mm2)) +
+  geom_point() +
+  geom_smooth(method = 'lm', se = FALSE, formula = y ~ x) +
+  stat_cor(label.x = 3, label.y = 50, size = 4) +
+  stat_regline_equation(label.x = 3, label.y = 60, size = 4) +
+  theme_pubr()
+ggsave(filename = file.path(dir, "V4IpsiArea_daysV4afterV3.pdf"))
+
+ggplot(us_dat,aes(days_V4afterV3, V4_Contra_EllipseArea_mm2)) +
+  geom_point() +
+  geom_smooth(method = 'lm', se = FALSE, formula = y ~ x) +
+  stat_cor(label.x = 3, label.y = 50, size = 4) +
+  stat_regline_equation(label.x = 3, label.y = 60, size = 4) +
+  theme_pubr()
+ggsave(filename = file.path(dir, "V4ContraArea_daysV4afterV3.pdf"))
