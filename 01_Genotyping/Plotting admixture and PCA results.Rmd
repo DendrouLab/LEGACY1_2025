@@ -1,0 +1,244 @@
+---
+title: "admixture_plotting"
+output: console
+---
+
+## Libraries
+```{r library}
+library("tidyverse")
+library("ggplot2")
+library("ggpubr")
+library("randomcoloR")
+```
+
+## Directories
+```{r}
+admixture_dir <- ""
+out_dir <- ""
+out_dir_final <- ""
+
+ref_dir <- ""
+```
+
+## Import
+```{r import}
+k_toplot <- 18
+
+adx_filename <- file.path(admixture_dir, paste0("LEG1_JasonsRef_merged.",k_toplot,".Q"))
+adx_names <- paste0("K", seq(1, k_toplot))
+fam_filename <- file.path(ref_dir, "LEG1_JasonsRef_merged.fam")
+pop_filename <- file.path(ref_dir, "LEG1_Jason_merge_pop.txt")
+
+adx <- read.table(adx_filename,h=F) #admixture result
+names(adx) <- adx_names
+fam <- read.table(fam_filename,h=F) #reference file from Jason
+pop <- read.table(pop_filename, header = TRUE, stringsAsFactors=FALSE )
+
+## Set up sample names and ancestry
+samples <- unlist(lapply(fam$V2, function(x) unlist(strsplit(x, split = "_"))[1]))
+adx$sample <- samples
+adx$ancestry <- pop[ match(adx$sample,pop$sample),]$super_pop
+```
+
+## Colours
+```{r}
+cols <- read.csv(file.path(out_dir, "k_colours.csv"))
+
+df_colours <- data.frame("K" = cols$k[1:k_toplot], "colour" = cols$colour[1:k_toplot])
+df_colours <- tibble::deframe(df_colours)
+
+df_superpop <- unique(adx$ancestry)
+df_superpop_cols <- c("#f0d917", "#aa9ce3", "#714e8e", "#f27d52", "#9cd6e3", "#d9ead3", "#0789a9", "#ffbdf0", "#bc131f")
+names(df_superpop_cols) <- df_superpop
+
+
+COLOURS <- list()
+COLOURS[["K"]] <- df_colours
+COLOURS[["ANCESTRY"]] <- df_superpop_cols
+
+```
+
+## Plot
+### AllPopulations_colouredbyK.png
+```{r, fig.width = 20, fig.height = 8}
+pltDf <- adx %>% 
+  mutate(id = row_number()) %>% 
+  gather('pop', 'prob', K1:paste0("K",k_toplot)) %>% 
+  group_by(id) %>% 
+  mutate(likely_assignment = pop[which.max(prob)],
+         assingment_prob = max(prob)) %>% 
+  arrange(likely_assignment, desc(assingment_prob)) %>% 
+  ungroup() %>% 
+  mutate(id = forcats::fct_inorder(factor(id)))
+
+plt <- pltDf %>% filter(ancestry != "unknown") %>% ggplot(aes(id, prob, fill = pop)) +
+  geom_col() +
+  theme_classic()  + 
+  facet_grid(~ancestry, scales = 'free', space = 'free') +
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    legend.position = "right",
+    text=element_text(size=24)
+  ) +
+  scale_fill_manual(values=COLOURS$K) +
+  ylab("Ancestry Proportion") +
+  labs(title = "Reference genome: 1000 Genome Project + Human Genome Diversity Project", subtitle = paste0("K resolution: ",k_toplot))
+
+ggsave(plt, filename = file.path(out_dir_final, paste0("AllPopulations_colouredbyK", k_toplot,".png")), width = 25, height = 8)
+
+plt <- pltDf %>% filter(ancestry == "unknown") %>% ggplot(aes(sample, prob, fill = pop)) +
+  geom_col() +
+  theme_classic()  + 
+  facet_grid(~ancestry, scales = 'free', space = 'free') +
+  theme(
+    axis.title.x = element_blank(),
+    #axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    legend.position = "right",
+    text=element_text(size=24),
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)
+  ) +
+  scale_fill_manual(values=COLOURS$K) +
+  ylab("Ancestry Proportion") +
+  labs(title = "LEGACY Year 1 Samples", subtitle = paste0("K resolution: ",k_toplot))
+
+ggsave(plt, filename = file.path(out_dir_final, paste0("LEGACYSamples_colouredbyK", k_toplot, ".png")), width = 13, height = 10)
+```
+
+### Determining superpopulation with K
+```{r}
+superpop_DF <- unique(data.frame("sample" = pltDf$sample, "ancestry" = pltDf$ancestry, "likely_assignment" = pltDf$likely_assignment, "assingment_prob" = pltDf$assingment_prob))
+
+K_superPop <- superpop_DF %>% group_by(likely_assignment) %>% count(ancestry) %>% mutate(freq = n / sum(n))
+
+k_pltorder <- gtools::mixedsort(unique(K_superPop$likely_assignment))
+
+plt <- K_superPop %>% filter(ancestry != "unknown") %>% ggplot(aes(fill=ancestry, y=n, x=likely_assignment)) + 
+    geom_bar(position="fill", stat="identity", aes(x = factor(likely_assignment, level = k_pltorder))) +
+    scale_fill_manual(values=COLOURS$ANCESTRY) +
+  theme_minimal() +
+  labs(x = " ", y = "Proportion", fill = "Super \nPopulation")
+ggsave(plt, filename = file.path(out_dir_final, paste0("K",k_toplot, "_colouredbyAncestry_prop.png")), width = 7, height = 4)
+
+plt <- ggplot(K_superPop, aes(fill=ancestry, y=n, x=likely_assignment)) + 
+    geom_bar(position="dodge", stat="identity") +
+    scale_fill_manual(values=COLOURS$ANCESTRY) +
+  theme_minimal()
+ggsave(plt, filename = file.path(out_dir, paste0("K",k_toplot, "_colouredbyAncestry_count.png")), width = 10, height = 8)
+```
+
+### Rename K-clusters to most likely ancestral super population
+```{r}
+K_likelyAncestry <- K_superPop %>% 
+  group_by(likely_assignment) %>% 
+  summarise(likely_ancestry = ancestry[which.max(freq)],
+         ancestry_prob = max(freq)) %>%
+  arrange(ancestry_prob)
+
+# Rename dictionary
+colnames(K_likelyAncestry) <- c("K", "Likely_ancestry", "Ancestry_Prob")
+```
+
+### LEGACY samples with likely ancestry
+```{r}
+pltDf_merged <- merge(pltDf, K_likelyAncestry[c("K", "Likely_ancestry")], by.x = "pop", by.y = "K")
+
+samplepltDF <- pltDf_merged %>% filter(ancestry == "unknown")
+samplepltDF$sample_id <- gsub(".*10487-","",samplepltDF$sample)
+
+plt_final <- samplepltDF %>% ggplot(aes(sample_id, prob, fill = Likely_ancestry)) +
+  geom_col() +
+  theme_classic()  + 
+  #facet_grid(~ancestry, scales = 'free', space = 'free') +
+  theme(
+    axis.title.x = element_blank(),
+    #axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    legend.position = "right",
+    text=element_text(size=24),
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)
+  ) +
+  scale_fill_manual(values=COLOURS$ANCESTRY) +
+  labs(y = "Ancestry Proportion", fill = "Super \nPopulation", title = "LEGACY Year 1 Samples", subtitle = paste0("K resolution: ",k_toplot))
+ggsave(plt_final, filename = file.path(out_dir_final, paste0("LEGACYSamples_colouredbyLikelyAncestry", k_toplot, ".png")), width = 13, height = 10)
+
+# Export numbers
+saveDF <- plt_final$data
+write.csv(saveDF, file = file.path(out_dir_final, paste0("LEGACY_genotype_byK",k_toplot,".csv")), row.names = FALSE)
+
+saveDF_bySuperPop <- saveDF %>% group_by(sample_id, Likely_ancestry) %>% summarise(pop_likely_ancestry_prob = sum(prob))
+write.csv(saveDF_bySuperPop, file = file.path(out_dir_final, paste0("LEGACY_genotype_bySuperPop",k_toplot,".csv")), row.names = FALSE)
+
+saveDF_bySuperPop_wide <- saveDF_bySuperPop %>% pivot_wider(names_from = Likely_ancestry, values_from = pop_likely_ancestry_prob)
+write.csv(saveDF_bySuperPop_wide, file = file.path(out_dir_final, paste0("LEGACY_genotype_bySuperPop",k_toplot,"_wide.csv")), row.names = FALSE)
+
+```
+
+### PCA
+```{r}
+pca <- read.table("LEG1_JasonsRef_merged_pca.eigenvec", header = FALSE, stringsAsFactors = F)
+eigenval <- scan("LEG1_JasonsRef_merged_pca.eigenval", as.numeric())
+
+# set names
+names(pca)[1] <- "fid"
+names(pca)[2] <- "iid"
+names(pca)[3:ncol(pca)] <- paste0("PC", 1:(ncol(pca)-2))
+```
+
+```{r}
+pve <- data.frame( PC = 1:10, percent_explained = eigenval / sum(eigenval)*100 )
+pve$label = sprintf( "%.2f%%", pve$percent_explained )
+
+(
+  ggplot(pve, aes(x = as.factor(PC), y = percent_explained ))
+  + geom_col()
+  + geom_text( aes( label = label, vjust = -0.2 ))
+  + xlab( "Principal Components" )
+  + ylab( "% Variance Explained" )
+  + theme_classic()
+)
+```
+```{r}
+#plotting the top 2 PCs 
+(
+  ggplot(pca, aes(PC1, PC2))
+  + geom_point(size = 1)
+  + theme_classic()
+)
+```
+
+```{r}
+#adding population labels 
+## read in population information
+pop <- read_table("LEG1_Jason_merge_pop.txt")
+
+# assign continental population to each sample
+pca$superPop <- pop[ match( pca$iid, pop$sample ),]$super_pop
+
+(
+  ggplot(pca, aes(x = PC1, y = PC2, col = superPop)) +
+  geom_point(size = 1) +
+  theme_classic() +
+  xlab(paste0("PC1 (", signif(pve$percent_explained[1], 10), "%)")) +
+  ylab(paste0("PC2 (", signif(pve$percent_explained[2], 10), "%)")) +
+  scale_color_manual(values = c("#f0d917", "#aa9ce3", "#714e8e", "#f27d52", "#9cd6e3", "#d9ead3", "#0789a9", "#ffbdf0", "#bc131f"))
+)
+```
+
+```{r}
+## likely k-cluster to PCA
+## pltDf from above
+
+pca$likely_k <- pltDf[ match( pca$iid, pltDf$sample ),]$likely_assignment
+
+(
+  ggplot(pca, aes(x = PC1, y = PC2, col = likely_k)) +
+  geom_point(size = 1) +
+  theme_classic() +
+  xlab(paste0("PC1 (", signif(pve$percent_explained[1], 10), "%)")) +
+  ylab(paste0("PC2 (", signif(pve$percent_explained[2], 10), "%)")) +
+  scale_color_manual(values=COLOURS$K)
+)
+```
