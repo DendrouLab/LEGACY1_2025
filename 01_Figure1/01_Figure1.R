@@ -1,4 +1,4 @@
-# Figure 1 with ultrasound area & STERR, PCA
+# Figure 1 with ultrasound LN diameter, PCA
 
 library(ggpubr)
 library(rstatix)
@@ -10,48 +10,13 @@ library(dplyr)
 library(purrr)
 library(viridis)
 
-out_dir <- "."
+out_dir <- file.path(".")
 
 # Import data
 metadat <- read.csv("LN_USmeasurements_withArea.csv")
 
-metadat <- transform(metadat, V2_Ipsi_EllipseArea_mm2 = pi*(V2_LengthIpsiLN_mm/2)*(V2_WidthIpsiLN_mm/2))
-metadat <- transform(metadat, V2_Contra_EllipseArea_mm2 = pi*(V2_LengthContraLN_mm/2)*(V2_WidthContraLN_mm/2))
-metadat <- transform(metadat, V4_Ipsi_EllipseArea_mm2 = pi*(V4_LengthIpsiLN_mm/2)*(V4_WidthIpsiLN_mm/2))
-metadat <- transform(metadat, V4_Contra_EllipseArea_mm2 = pi*(V4_LengthContraLN_mm/2)*(V4_WidthContraLN_mm/2))
-
-columns_remove2 <- c("V2_LengthIpsiLN_mm", "V2_WidthIpsiLN_mm", "V2_LengthContraLN_mm", "V2_WidthContraLN_mm", "V4_LengthIpsiLN_mm", "V4_WidthIpsiLN_mm", "V4_LengthContraLN_mm", "V4_WidthContraLN_mm")
+columns_remove2 <- c("X", "X.1", "V2_Ipsi_EllipseArea_mm2", "V2_WidthIpsiLN_mm", "V2_Contra_EllipseArea_mm2", "V2_WidthContraLN_mm", "V4_Contra_EllipseArea_mm2", "V4_WidthIpsiLN_mm", "V4_Ipsi_EllipseArea_mm2", "V4_WidthContraLN_mm")
 metadat <- metadat[,!(names(metadat) %in% columns_remove2)]
-
-# Calculate ellipse area uncertaintity
-ellipse_stdev <- function(dat, width_name, length_name){
-  width_dat = dat[,width_name]
-  length_dat = dat[,length_name]
-  
-  num_samples = length(width_dat)
-  
-  width_mean = mean(width_dat)
-  length_mean = mean(length_dat)
-  
-  width_sd = sd(width_dat)
-  length_sd = sd(length_dat)
-  
-  ellipse_stdev = (pi/4)*((width_mean*length_mean))*sqrt((width_sd^2/width_mean^2)+(length_sd^2/length_mean^2))
-  return(ellipse_stdev)
-}
-
-summary_dat <- metadat %>% group_by(sampletype, timepoint, sampleside) %>% summarise(mean_area = mean(ellipseArea_mm2), 
-                                                                                      n_number = n())
-PreVax_Ipsi <- ellipse_stdev(metadat, "V2_WidthIpsiLN_mm", "V2_LengthIpsiLN_mm")
-PreVax_Contra <- ellipse_stdev(metadat, "V2_WidthContraLN_mm", "V2_LengthContraLN_mm")
-PostVax_Ipsi <- ellipse_stdev(metadat, "V4_WidthIpsiLN_mm", "V4_LengthIpsiLN_mm")
-PostVax_Contra <- ellipse_stdev(metadat, "V4_WidthContraLN_mm", "V4_LengthContraLN_mm")
-
-stdev_ellipsearea <- c(PreVax_Contra, PreVax_Ipsi, PostVax_Contra, PostVax_Ipsi)
-names(stdev_ellipsearea) <- c("PreVax_Contra", "PreVax_Ipsi", "PostVax_Contra", "PostVax_Ipsi")
-
-summary_dat$stdev_area <- stdev_ellipsearea
-summary_dat$sterror_area <- summary_dat$stdev_area/sqrt(summary_dat$n_number)
 
 # Adding in sampling total counts
 totalcount_sample <- read.csv("sampleprocessing_LNtotalcounts.csv")
@@ -93,49 +58,58 @@ for (variableplotting in variables_plot){
   ggsave(filename = file.path(out_dir, paste0("PCA_byDonor_", variableplotting,".pdf")), width = 10, height = 8)
 }
 
-# Comparing processing cell numbers with number days post-vax
-totalcount_sample_save <- tidyr::pivot_wider(totalcount_sample, names_from = count_visitid_vaxtype, values_from = total_count)
+## LN Diameter vs days post vax
+COLOURS <- list()
 
-us_dat <- merge(metadat, totalcount_sample_save, by = "donor_id")
+COLOURS[['visitid_vaxtype']] <- c("V2_Contra" = "#A6CEE3", 
+                                  "V2_Ipsi" = "#FDBF6F",
+                                  "V4_Contra" = "#1F78B4", 
+                                  "V4_Ipsi" = "#FF7F00")
 
-Q_V4ipsi <- quantile(us_dat$totalcount_PostVaxIpsi, probs=c(.25, .75), na.rm = FALSE)
-iqr_V4ipsi <- IQR(us_dat$totalcount_PostVaxIpsi)
-no_outliers_V4ipsi <- subset(us_dat, us_dat$totalcount_PostVaxIpsi > (Q_V4ipsi[1] - 1.5*iqr_V4ipsi) & us_dat$totalcount_PostVaxIpsi < (Q_V4ipsi[2]+1.5*iqr_V4ipsi))
+COLOURS[['visitid_vaxtype2']] <- c("PreVaxContra" = "#A6CEE3", 
+                                   "PreVaxIpsi" = "#FDBF6F",
+                                   "PostVaxContra" = "#1F78B4", 
+                                   "PostVaxIpsi" = "#FF7F00")
 
-Q_V4contra <- quantile(us_dat$totalcount_PostVaxContra, probs=c(.25, .75), na.rm = FALSE)
-iqr_V4contra <- IQR(us_dat$totalcount_PostVaxContra)
-no_outliers_V4contra <- subset(us_dat, us_dat$totalcount_PostVaxContra > (Q_V4contra[1] - 1.5*iqr_V4contra) & us_dat$totalcount_PostVaxContra < (Q_V4contra[2]+1.5*iqr_V4contra))
+dat <- read.csv(file.path(in_dir, "LymphNodeSize_Metadata.csv"))
+
+columns_remove <- c("X")
+
+dat <- dat[,!(names(dat) %in% columns_remove)]
+
+width_dat <- dat[,names(dat) %in% c("donor_id", "days_V4afterV3", "V2_LengthIpsiLN_mm", "V2_LengthContraLN_mm", "V4_LengthIpsiLN_mm", "V4_LengthContraLN_mm")]
+
+width_dat <- width_dat %>% pivot_longer(!c(donor_id, days_V4afterV3), names_to = "sampletype", values_to = "diameter_mm")
+width_dat$sampletype <- sub("LN_mm", "", width_dat$sampletype)
+width_dat$sampletype <- sub("Length", "", width_dat$sampletype)
+width_dat$timepoint <- sub("_.*", "", width_dat$sampletype)
+width_dat$sampleside <- sub(".*_", "", width_dat$sampletype)
+
+compare_means(diameter_mm ~ sampletype, data = width_dat)
+my_comparisons <- list(c("V2_Ipsi", "V2_Contra"), c("V2_Ipsi", "V4_Ipsi"), c("V2_Contra", "V4_Contra"), c("V4_Ipsi", "V4_Contra"))
+
+width_dat$sampletype <- factor(width_dat$sampletype, levels = c("V2_Contra", "V2_Ipsi", "V4_Contra", "V4_Ipsi"))
+ggboxplot(width_dat, x = "sampletype", y = "diameter_mm", color = "sampletype", add = "jitter") +
+  scale_color_manual(values = COLOURS$visitid_vaxtype) +
+  stat_compare_means(comparisons = my_comparisons)+ # Add pairwise comparisons p-value
+  stat_compare_means(label.y = 30)                   # Add global p-value
+ggsave(filename=file.path(out_dir, "UltrasoundMeasurement_Diameter.pdf"), width = 5, height = 6)
 
 
-ggplot(no_outliers_V4ipsi,aes(days_V4afterV3, totalcount_PostVaxIpsi)) +
-  geom_point() +
+## Days of post-vax
+width_dat %>% filter(sampletype == "V4_Ipsi") %>% ggplot(aes(x = days_V4afterV3, y = diameter_mm)) + geom_jitter(width = 0.05) +
   geom_smooth(method = 'lm', se = FALSE, formula = y ~ x) +
-  stat_cor(label.x = 3, label.y = 1E7, size = 4) +
-  stat_regline_equation(label.x = 3, label.y = 1.2E7, size = 4) +
-  theme_pubr()
-ggsave(filename = file.path(dir, "V4TotalCellCountIpsi_daysV4afterV3_noOutliers.pdf"))
+  stat_cor(label.x = 3, label.y = 25, size = 4) +
+  theme_pubr() +
+  labs(subtitle = "V4_Ipsi") +
+  ylim(5, 25)
+ggsave(filename=file.path(out_dir, "V4IpsiDiameter_daysV4afterV3.pdf"), width = 6, height = 5)
 
-ggplot(no_outliers_V4contra,aes(days_V4afterV3, totalcount_PostVaxContra)) +
-  geom_point() +
-  geom_smooth(method = 'lm', se = FALSE, formula = y ~ x) +
-  stat_cor(label.x = 3, label.y = 2500000, size = 4) +
-  stat_regline_equation(label.x = 3, label.y = 2000000, size = 4) +
-  theme_pubr()
-ggsave(filename = file.path(dir, "V4TotalCellCountContra_daysV4afterV3_noOutliers.pdf"))
 
-# Comparing LN area with number days post-vax
-ggplot(us_dat,aes(days_V4afterV3, V4_Ipsi_EllipseArea_mm2)) +
-  geom_point() +
+width_dat %>% filter(sampletype == "V4_Contra") %>% ggplot(aes(x = days_V4afterV3, y = diameter_mm)) + geom_jitter(width = 0.05) +
   geom_smooth(method = 'lm', se = FALSE, formula = y ~ x) +
-  stat_cor(label.x = 3, label.y = 50, size = 4) +
-  stat_regline_equation(label.x = 3, label.y = 60, size = 4) +
-  theme_pubr()
-ggsave(filename = file.path(dir, "V4IpsiArea_daysV4afterV3.pdf"))
-
-ggplot(us_dat,aes(days_V4afterV3, V4_Contra_EllipseArea_mm2)) +
-  geom_point() +
-  geom_smooth(method = 'lm', se = FALSE, formula = y ~ x) +
-  stat_cor(label.x = 3, label.y = 50, size = 4) +
-  stat_regline_equation(label.x = 3, label.y = 60, size = 4) +
-  theme_pubr()
-ggsave(filename = file.path(dir, "V4ContraArea_daysV4afterV3.pdf"))
+  stat_cor(label.x = 3, label.y = 25, size = 4) +
+  theme_pubr() +
+  labs(subtitle = "V4_Contra") +
+  ylim(5, 25)
+ggsave(filename=file.path(out_dir, "V4ContraDiameter_daysV4afterV3.pdf"), width = 6, height = 5)
