@@ -1,0 +1,5 @@
+run_name,k,density_thr,cnmf_folder,adata_file
+B_cell,17,0.15,/well/legacy/users/pps914/output/005_year1multi/005_year1multi_cNMF_bybroadSubset/pipeline_cNMF/B_cell,/well/legacy/users/pps914/output/005_year1multi/005_year1multi_cNMF_bybroadSubset/adata_bySubset/005_cNMFbylargeres_B_cell.h5ad
+CD4_T,17,0.25,/well/legacy/users/pps914/output/005_year1multi/005_year1multi_cNMF_bybroadSubset/pipeline_cNMF/CD4_T,/well/legacy/users/pps914/output/005_year1multi/005_year1multi_cNMF_bybroadSubset/adata_bySubset/005_cNMFbylargeres_CD4_T.h5ad
+Myeloid,10,0.21,/well/legacy/users/pps914/output/005_year1multi/005_year1multi_cNMF_bybroadSubset/pipeline_cNMF/Myeloid,/well/legacy/users/pps914/output/005_year1multi/005_year1multi_cNMF_bybroadSubset/adata_bySubset/005_cNMFbylargeres_Myeloid.h5ad
+nonCD4_T,15,0.25,/well/legacy/users/pps914/output/005_year1multi/005_year1multi_cNMF_bybroadSubset/pipeline_cNMF/nonCD4_T,/well/legacy/users/pps914/output/005_year1multi/005_year1multi_cNMF_bybroadSubset/adata_bySubset/005_cNMFbylargeres_nonCD4_T.h5ad

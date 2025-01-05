@@ -1,0 +1,417 @@
+---
+title: "cNMF_bySubset_ResultHubsStats"
+output: console
+---
+
+```{r}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(viridis)
+library(stringr)
+library(optparse)
+library(rstatix)
+library(reshape2)
+library(cowplot)
+library(tidystats)
+library(purrr)
+library(data.table)
+library(HardyWeinberg)
+library(igraph)
+library(pheatmap)
+library(ComplexHeatmap)
+library(stringi)
+library(ggpubr)
+library(matrixStats)
+library(lme4)
+library(tibble)
+library(randomcoloR)
+library(ggeffects)
+```
+
+# Dir
+```{r}
+out_dir <- ""
+in_dir <- ""
+```
+
+# Jacqueline method
+Looking at all program scores
+
+## Colours
+```{r}
+colour_file <- read.csv("ColourPalette_FineCellType.csv", header = TRUE)
+
+# Colours
+COLOURS <- list()
+
+df_colours <- data.frame("celltype" = colour_file$celltype[1:42], "colour" = colour_file$colour[1:42])
+df_colours <- tibble::deframe(df_colours)
+
+COLOURS[['celltype']] <- df_colours
+
+COLOURS[['visitid_vaxtype2']] <- c("PreVax_Contra" = "#A6CEE3", 
+                                  "PreVax_Ipsi" = "#FDBF6F",
+                                  "PostVax_Contra" = "#1F78B4", 
+                                  "PostVax_Ipsi" = "#FF7F00")
+
+COLOURS[['visitid_vaxtype']] <- c("V2_contralateral" = "#A6CEE3", 
+                                  "V2_ipsilateral" = "#FDBF6F",
+                                  "V4_contralateral" = "#1F78B4", 
+                                  "V4_ipsilateral" = "#FF7F00")
+```
+
+## Importing data
+Per cell (row) of each program usage and program score
+
+Create your own folder with all the consensus_norm_results from each run first (I did it manually).
+```{r}
+filenames <- list.files(path = file.path(out_dir, "consensus_norm_results"), recursive = FALSE, pattern = ".consensus.norm.txt")
+celltypes <- gsub(".usages.*", "", filenames)
+
+df_list <- lapply(file.path(out_dir, "consensus_norm_results", filenames), read.table, header = TRUE, sep = ",")
+
+names(df_list) <- celltypes
+
+final <- bind_rows(df_list, .id = "cell_subset")
+
+final_long <- final %>% pivot_longer(cols = -c(cell_subset, index), names_to = "program_usage", values_to = "program_score")
+
+final_long$program_usage <- paste0(final_long$cell_subset, "--", final_long$program_usage)
+
+colnames(final_long) <- c("cell_subset", "cell_id", "program_usage", "program_score")
+
+final_long <- na.omit(final_long)
+
+final_long$sample_id <- gsub(".*-1-", "", final_long$cell_id)
+final_long$donor_id <- gsub("-.*", "", final_long$sample_id)
+final_long$sample_type <- gsub(".*-", "", final_long$sample_id)
+final_long$visit_id <- paste0("V", substring(final_long$sample_type, 1, 1))
+final_long$sample_side <- substring(final_long$sample_type, nchar(final_long$sample_type), nchar(final_long$sample_type))
+
+
+# Importing vaccine arm info
+metadat <- read.csv("LEGACY_metadata.csv")
+columns_keep <- c("donor_id", "days_V4afterV3", "Vaccine_arm")
+
+metadat <- metadat[columns_keep]
+metadat$Vaccine_arm <- gsub("H", "", metadat$Vaccine_arm)
+
+# Matching ipsilateral/ contra data
+final_long <- merge(final_long, metadat, by = "donor_id", all.x = TRUE)
+
+final_long <- transform(final_long, vaccine_type = ifelse(Vaccine_arm==sample_side, "Ipsilateral", "Contralateral"))
+final_long$visitid_vaxtype <- paste0(final_long$visit_id, "_", final_long$vaccine_type)
+```
+
+
+## EDM Determining which gene usage programs are significantly different between sample types (ignoring donor variability)
+https://www.bioconductor.org/packages/release/bioc/vignettes/EMDomics/inst/doc/EMDomics.html
+```{r}
+library(EMDomics)
+
+allsubsets <- unique(final_long$cell_subset)
+
+# Calculating EMD score on a per subset basis
+for (subset_ofinterest in allsubsets[3:4]){
+  #subset_ofinterest <- "B_GC"
+  subset_dat <- subset(final_long, cell_subset == subset_ofinterest, select=c("cell_id", "program_score", "program_usage"))
+  subset_dat$program_usage <- gsub("--", "__", subset_dat$program_usage)
+  subset_dat2 <- subset(final_long, cell_subset == subset_ofinterest, select=c("cell_id", "visitid_vaxtype"))
+  
+  reshaped_data <- spread(subset_dat, key = cell_id, value = program_score)
+  rownames(reshaped_data) <- reshaped_data$program_usage
+  reshaped_data <- reshaped_data[, -which(names(reshaped_data) %in% c("program_usage"))]
+  
+  labels_df <- data.frame("cell_id" = names(reshaped_data))
+  matching_dat <- unique(subset_dat2[,c("cell_id", "visitid_vaxtype")])
+  labels_df <- merge(labels_df, matching_dat, by = "cell_id", all.x = TRUE)
+  labels_df <- labels_df[order(colnames(reshaped_data)),]
+  labels <- labels_df$visitid_vaxtype
+  names(labels) <- labels_df$cell_id
+
+  results <- calculate_emd(reshaped_data, labels, nperm=1000, binSize = 0.2, seq = FALSE, pairwise.p = FALSE, parallel = FALSE)
+  results_filename <- file.path(out_dir, "EMD", paste0("EMDresults_", subset_ofinterest, ".qs"))
+  qsave(results, results_filename)
+
+  emd <- results$emd
+  write.csv(emd, file.path(out_dir, "EMD", paste0("EMDresults_qvalues_", subset_ofinterest,".csv")))
+  
+  emd.pairwise <- results$pairwise.emd.table
+  write.csv(emd.pairwise, file.path(out_dir, "EMD", paste0("EMDresults_pairwise_", subset_ofinterest, ".csv")))
+
+}
+
+# Bash combine emd csv (didn't save it in case loop errors for some subsets)
+# awk '(NR == 1) || (FNR > 1)' *.csv > Combined_EMDresults_qvalues.csv
+# awk '(NR == 1) || (FNR > 1)' *.csv > Combined_EMDresults_pairwise.csv
+
+# Read combined summary
+emd_results <- read.csv("EMD/Combined_EMDresults_qvalues.csv")
+
+emd_results <- emd_results[order(emd_results$emd, decreasing = TRUE),]
+emd_results$emdranking <- seq(1:nrow(emd_results)) 
+
+emd_results_keep <- emd_results[emd_results$q.value < 0.05,"X"]
+
+# Looking at pairwise EMD
+emd_pairwiseresults <- read.csv("EMD/EMDresults_pairwise/Combined_EMDresults_pairwise.csv")
+
+emd_pairwiseresults <- emd_pairwiseresults[emd_pairwiseresults$X %in% emd_results_keep,]
+
+emd_pairwiseresults <- emd_pairwiseresults[ , !names(emd_pairwiseresults) %in% c("V4_Contralateral.vs.V2_Ipsilateral","V2_Contralateral.vs.V4_Ipsilateral")]
+```
+
+# Heatmap of emd_pairwiseresults
+```{r}
+heatmap_dat <- emd_pairwiseresults
+rownames(heatmap_dat) <- emd_pairwiseresults$X
+
+heatmap_dat <- as.matrix(heatmap_dat[, !names(heatmap_dat) %in% c("X", "V2_Contralateral.vs.V2_Ipsilateral")])
+
+colnames(heatmap_dat) <- c("V4_Contra.vs.V2_Contra-1", "V4_Contra.vs.V4_Ipsi-2", "V4_Ipsi.vs.V2_Ipsi-4")
+
+heatmap(heatmap_dat, scale = "none", margins = c(8,8), cexCol = 0.5)
+heatmap(heatmap_dat, scale = "row", margins = c(8,8), cexCol = 0.5)
+
+```
+
+# GSEA
+```{r}
+# Import EMD rankings
+emd_results <- read.csv("/well/legacy/users/pps914/output/005_year1multi/005_year1multi_cNMF_bybroadSubset/plotting_cNMF_results/EMD/Combined_EMDresults_qvalues.csv")
+
+emd_results <- emd_results[order(emd_results$emd, decreasing = TRUE),]
+emd_results$emdranking <- seq(1:nrow(emd_results))
+
+library(fgsea)
+library(org.Hs.eg.db)
+library(tidyr)
+library(ggplot2)
+library(dplyr)
+
+pathways.hallmark <- gmtPathways("/well/legacy/projects/references/msigdb_v2023.2.Hs_GMTs/c5.go.bp.v2023.2.Hs.symbols.gmt")
+pathways_name <- "GOBP"
+topnumberofgenes <- 200
+
+combo_submission_file <- read.csv("/well/legacy/users/pps914/output/005_year1multi/005_year1multi_cNMF_bybroadSubset/pipeline_cNMF_hubs/combined_submissionfile.csv")
+
+for (i in 1:nrow(combo_submission_file)){
+  density_thr_tmp <- combo_submission_file$density_thr[i]
+  density_thr_tmp <- gsub("\\.", "_", density_thr_tmp)
+  
+  gene_subset <- combo_submission_file$run_name[i]
+  
+  gene_score_filepath <- file.path("/well/legacy/users/pps914/output/005_year1multi/005_year1multi_cNMF_bybroadSubset/pipeline_cNMF", combo_submission_file$run_name[i], paste0(combo_submission_file$run_name[i],".k_",combo_submission_file$k[i],".dt_",density_thr_tmp), "gene_scores.csv")
+  
+  gene_score <- read.csv(gene_score_filepath)
+  
+  colnames(gene_score)[1] <- "gene"
+  
+  gene_score_long <- gene_score %>% pivot_longer(cols = -c(gene), names_to = "program_usage", values_to = "program_score")
+  
+  gene_score_long$program_usage <- gsub("X", "Usage_", gene_score_long$program_usage)
+  gene_score_long$program_usage <- paste0(gene_subset, "__", gene_score_long$program_usage)
+  
+  allprogram_usages <- unique(gene_score_long$program_usage)
+  
+  for (j in 1:length(allprogram_usages)){
+    program_usage_interest <- allprogram_usages[j]
+    
+    tmp_genesubset <- subset(gene_score_long, program_usage %in% program_usage_interest)
+    tmp_genelist <- tmp_genesubset$program_score
+    names(tmp_genelist) <- tmp_genesubset$gene
+    tmp_genelist = sort(tmp_genelist, decreasing = TRUE)
+    tmp_genelist = tmp_genelist[!duplicated(names(tmp_genelist))]
+    tmp_genelist <- tmp_genelist[1:topnumberofgenes]
+    
+    program_ranking <- emd_results[(emd_results$X == program_usage_interest),]$emdranking
+
+    # GSEA
+    fgRes <- fgsea::fgsea(pathways = pathways.hallmark,
+                        stats = tmp_genelist,
+                        minSize=15, ## minimum gene set size
+                        maxSize=400, ## maximum gene set size
+                        nPermSimple=1000) %>% 
+    as.data.frame() %>% 
+    #dplyr::filter(padj < !!pval) %>% 
+    arrange(desc(NES))
+  message(paste("Number of signficant gene sets =", nrow(fgRes)))
+  
+  ggplot(fgRes, aes(reorder(pathway, NES), NES)) +
+    geom_col(aes(fill=padj<0.05)) +
+    coord_flip() +
+    labs(x="Pathway", y="Normalized Enrichment Score",
+         title=paste0(pathways_name, " pathways NES from GSEA"), 
+         caption = paste0(program_usage_interest, "\n", "EMD ranking: ", program_ranking)) + 
+    theme_minimal()
+  
+    ggsave(height = 10, width = 10, filename = file.path("/well/legacy/users/pps914/output/005_year1multi/005_year1multi_cNMF_bybroadSubset/plotting_cNMF_results/GSEA", paste0("GSEA_", pathways_name, "_emdRank", program_ranking, "_", program_usage_interest, ".png")))
+    
+    fwrite(fgRes, file=file.path("/well/legacy/users/pps914/output/005_year1multi/005_year1multi_cNMF_bybroadSubset/plotting_cNMF_results/GSEA", paste0("GSEA_", pathways_name, "_emdRank", program_ranking, "_", program_usage_interest, "_table.tsv")), sep="\t", sep2=c("", " ", ""))
+```
+
+
+# Linking gene programs with celltypes
+```{r}
+library(qs)
+library(SingleCellExperiment)
+
+sce <- qread("sce.qs")
+
+celltype_plot <- "Bcells"
+
+norm_census <- read.csv("B_cell/B_cell.usages.k_17.dt_0_15.consensus.norm.txt", sep = ",")
+
+metadat <- colData(sce)
+metadat$index <- rownames(metadat)
+
+merged_dat <- merge(norm_census, metadat, by = "index")
+
+use_dat <- data.frame(merged_dat[2:18],"index" = merged_dat$index, "celltype" = merged_dat$celltype)
+
+usage_toplot <- length(norm_census) - 1
+
+pltDf <- as.data.frame(use_dat) %>% 
+  mutate(id = row_number()) %>% 
+  gather('program', 'prob', Usage_1:paste0("Usage_",usage_toplot)) %>% 
+  group_by(id) %>% 
+  mutate(likely_assignment = program[which.max(prob)],
+         assingment_prob = max(prob)) %>% 
+  arrange(likely_assignment, desc(assingment_prob)) %>% 
+  ungroup() %>% 
+  mutate(id = forcats::fct_inorder(factor(id)))
+
+# plt <- pltDf %>% ggplot(aes(id, prob, fill = program)) +
+#   geom_col() +
+#   theme_classic()  + 
+#   facet_grid(~celltype, scales = 'free', space = 'free') +
+#   theme(
+#     axis.title.x = element_blank(),
+#     axis.text.x = element_blank(),
+#     axis.ticks.x = element_blank(),
+#     legend.position = "right",
+#     text=element_text(size=24)
+#   ) +
+#   ylab("Program Proportion")
+# ggsave(plt, filename = file.path(out_dir, paste0("AllCelltypes_", celltype_plot, "_colouredbyPrograms.png")), width = 45, height = 8)
+
+# Determining celltypes from programs
+superpop_DF <- unique(data.frame("index" = pltDf$index, "celltype" = pltDf$celltype, "likely_assignment" = pltDf$likely_assignment, "assingment_prob" = pltDf$assingment_prob))
+write.csv(superpop_DF, file = file.path(out_dir, paste0("SuperPopDF_rawvalues_", celltype_plot, ".csv")), quote = F, row.names = F)
+
+K_superPop <- superpop_DF %>% group_by(likely_assignment) %>% dplyr::count(celltype) %>% mutate(freq = n / sum(n))
+write.csv(K_superPop, file = file.path(out_dir, paste0("SuperPopDF_summaryvalues_", celltype_plot, ".csv")), quote = F, row.names = F)
+
+k_pltorder <- gtools::mixedsort(unique(K_superPop$likely_assignment))
+
+plt <- K_superPop %>% ggplot(aes(fill=celltype, y=n, x=likely_assignment)) + 
+    geom_bar(position="fill", stat="identity", aes(x = factor(likely_assignment, level = k_pltorder))) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+  scale_fill_manual(values=COLOURS$celltype) +
+  labs(x = " ", y = "Proportion", fill = "Celltype")
+#ggsave(plt, filename = file.path(out_dir, paste0("ProgramUsage_", celltype_plot, "_colouredbyCelltype_prop.png")), width = 7, height = 4)
+ggsave(plt, filename = file.path(out_dir, paste0("ProgramUsage_", celltype_plot, "_colouredbyCelltype_prop.pdf")), width = 15, height = 10)
+
+
+# plt <- ggplot(K_superPop, aes(fill=celltype, y=n, x=likely_assignment)) + 
+#     geom_bar(position="dodge", stat="identity") +
+#     theme_minimal() +
+#     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) +
+#     scale_fill_manual(values=COLOURS$celltype)
+# ggsave(plt, filename = file.path(out_dir, paste0("ProgramUsage_", celltype_plot, "_colouredbyCelltype_count.png")), width = 10, height = 8)
+
+```
+
+
+# q0.75 HEATMAP with significant gene programs only
+```{r}
+out_dir_hub <- "/pipeline_cNMF_hubs"
+
+hubdiscovery_filenames <- list.files(path = file.path(out_dir_hub), recursive = FALSE, pattern = "_hub_discovery.csv")
+hubnames <- gsub("_program_hub_discovery.csv", "", hubdiscovery_filenames)
+
+final_hubdat <- {}
+
+for (i in 1:length(hubnames)){
+  tmp_dat <- read.csv(file.path(out_dir_hub, hubdiscovery_filenames[i]))
+  tmp_dat$hub_name <- hubnames[i]
+
+  final_hubdat <- rbind(final_hubdat, tmp_dat)
+}
+
+final_hubdat$program_fullname <- paste0(final_hubdat$hub_name, "__", final_hubdat$program)
+
+metadat <- colData(sce)
+
+metadat_hub <- unique(data.frame("sample_id" = metadat$sample_id, "donor_id" = metadat$donor_id, "visit_id" = metadat$visit_id, "vaccineside_type" = metadat$vaccineside_type, "visitid_vaxtype" = metadat$visitid_vaxtype))
+
+# Merged
+final_hubdat <- merge(final_hubdat, metadat_hub, by = "sample_id", all.x = TRUE)
+
+# Filter for significant programs only
+emd_results <- read.csv("EMD/Combined_EMDresults_qvalues.csv")
+
+emd_results <- emd_results[order(emd_results$emd, decreasing = TRUE),]
+emd_results$emdranking <- seq(1:nrow(emd_results)) 
+
+emd_results_keep <- emd_results[emd_results$q.value < 0.05,"X"]
+
+# Heatmap of q0.75 (program_fullname vs visitid_vaxtype-sample_id)
+sig_finalhubdat <- final_hubdat[final_hubdat$program_fullname %in% emd_results_keep,c("sample_id", "q0.75", "program_fullname", "visitid_vaxtype")] 
+sig_finalhubdat$sampleid_visitid_vaxtype <- paste0(sig_finalhubdat$visitid_vaxtype, "__", sig_finalhubdat$sample_id)
+
+sig_finalhubdat <- sig_finalhubdat[,names(sig_finalhubdat) %in% c("q0.75", "program_fullname", "sampleid_visitid_vaxtype")]
+
+mat <- pivot_wider(sig_finalhubdat, names_from = program_fullname, values_from = q0.75)
+mat2 <- as.matrix(mat[,-1])
+rownames(mat2) <- mat$sampleid_visitid_vaxtype
+
+library("RColorBrewer")
+col <- colorRampPalette(brewer.pal(10, "RdYlBu"))(256)
+
+col_side_annot <- gsub("__.*", "", rownames(mat2))
+col_side_annot <- gsub("V2_contralateral", "#A6CEE3", col_side_annot)
+col_side_annot <- gsub("V2_ipsilateral", "#FDBF6F", col_side_annot)
+col_side_annot <- gsub("V4_contralateral", "#1F78B4", col_side_annot)
+col_side_annot <- gsub("V4_ipsilateral", "#FF7F00", col_side_annot)
+
+heatmap(t(mat2), scale = "none", ColSideColors = col_side_annot)
+
+# B cell only
+sig_finalhubdat <- final_hubdat[final_hubdat$program_fullname %in% emd_results_keep,c("sample_id", "q0.75", "program_fullname", "visitid_vaxtype", "hub_name")] 
+sig_finalhubdat$sampleid_visitid_vaxtype <- paste0(sig_finalhubdat$visitid_vaxtype, "__", sig_finalhubdat$sample_id)
+
+sig_finalhubdat <- sig_finalhubdat[sig_finalhubdat$hub_name %in% c("nonCD4_T"),]
+
+sig_finalhubdat <- sig_finalhubdat[,names(sig_finalhubdat) %in% c("q0.75", "program_fullname", "sampleid_visitid_vaxtype")]
+
+mat <- pivot_wider(sig_finalhubdat, names_from = program_fullname, values_from = q0.75)
+mat2 <- as.matrix(mat[,-1])
+rownames(mat2) <- mat$sampleid_visitid_vaxtype
+
+library("RColorBrewer")
+col <- colorRampPalette(brewer.pal(10, "RdYlBu"))(256)
+
+col_side_annot <- gsub("__.*", "", rownames(mat2))
+col_side_annot <- gsub("V2_contralateral", "#A6CEE3", col_side_annot)
+col_side_annot <- gsub("V2_ipsilateral", "#FDBF6F", col_side_annot)
+col_side_annot <- gsub("V4_contralateral", "#1F78B4", col_side_annot)
+col_side_annot <- gsub("V4_ipsilateral", "#FF7F00", col_side_annot)
+
+heatmap(t(mat2), scale = "none", ColSideColors = col_side_annot)
+
+library(ComplexHeatmap)
+col = list(sample_type = c("V2_contralateral" = "#A6CEE3", "V2_ipsilateral" = "#FDBF6F", "V4_contralateral" = "#1F78B4", "V4_ipsilateral" = "#FF7F00"))
+ha <- HeatmapAnnotation(sample_type = gsub("__.*", "",rownames(mat2)), 
+                        donor_id = gsub("-.*", "",gsub(".*__", "",rownames(mat2))),
+                        col = col)
+
+plot <- Heatmap(t(mat2), 
+        name = "nonCD4_T", #title of legend
+        column_title = "Programs", row_title = "Samples",
+        row_names_gp = gpar(fontsize = 7), # Text size for row names
+        top_annotation = ha
+        )
+```

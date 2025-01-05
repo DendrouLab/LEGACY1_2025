@@ -1,0 +1,63 @@
+# environment deets
+# module load Python/3.8.2-GCCcore-9.3.0 #(required) for a ruffus dependency
+# conda activate cnmf_env3
+
+# environment deets
+# module load Python/3.8.2-GCCcore-9.3.0 #(required) for a ruffus dependency
+# conda activate cnmf_env3
+
+# Running pipeline_cnmf.py
+# navigate to directory for analysis
+# `python <path_to_code>/pipeline_cnmf.py config`
+# edit the pipeline.yml as directed
+# (example creation of adata file in set_up_anndata.ipynb )
+# leave umap coords blank if they are already in your anndata object, ohtherwise put in a path to some umap coords
+
+# then run 
+# `python <path_to_code>/pipeline_cnmf.py make run_cnmf_clustering`
+# which runs the cnmf.py through the cNMF main steps, 
+# - prepare
+# - factorise
+# - combine
+# - k selection plot
+
+# Review outputs
+# decide on appropriate k and density thresholds, edit yml
+# make consensus heatmaps
+# `python <path_to_code>/pipeline_cnmf.py make consensus_heatmap`
+
+# finally relate this all back to the gene expression data
+# `python <path_to_code>/pipeline_cnmf.py make full`
+
+resources_threads_high: 12
+run_name: CD4_T
+#e.g. cd74
+adata_path: /well/legacy/users/pps914/output/005_year1multi/005_year1multi_cNMF_bybroadSubset/adata_bySubset/005_cNMFbylargeres_CD4_T.h5ad
+#e.g. ../cd74/cd74_filt_annotated.h5ad
+
+#prepare
+run_k: 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17
+n_iter: 300
+total_workers: 25 
+seed: 42 
+hvgenes: 3000
+
+rerun_factorise: True
+
+
+# parameter select
+selected_K: 17
+density_thr: 
+  - 0.25
+
+#plotting
+umap_coords: /well/legacy/users/pps914/output/005_year1multi/005_year1multi_cNMF_bySubset/final005_year1multi_finalannotations_01122023_rna_UMAPcoord.tsv #../../clustering/subclustering/microglia/subclustering/microglia_nneigh15_pcs50_dir/microglia_md0.3_umap.txt.gz
+
+
+#top genes
+ngenes: 150
+
+# GO terms
+# download databases by running load_gene_annotation.py
+db_path: /well/legacy/users/pps914/output/005_year1multi/005_year1multi_cNMF_bySubset/databases/
+# /well/dendrou/users/dyd931/databases/

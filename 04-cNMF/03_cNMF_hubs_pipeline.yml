@@ -1,0 +1,22 @@
+# environment deets
+# module load Python/3.8.2-GCCcore-9.3.0 #(required) for a ruffus dependency
+# conda activate cnmf_env3
+# module load R-bundle-Bioconductor/3.11-foss-2020a-R-4.0.0
+# module load matlab/2019a
+# module load Boost/1.72.0-gompi-2020a
+
+submission_file: /well/legacy/users/pps914/output/005_year1multi/005_year1multi_cNMF_bybroadSubset/pipeline_cNMF_hubs/combined_submissionfile.csv
+# what is your sample col called in the anndata object?
+sample_col: "sample_id"
+keep_modules_file: /well/legacy/users/pps914/output/005_year1multi/005_year1multi_cNMF_bybroadSubset/pipeline_cNMF_hubs/keep_module_hubs.csv
+
+# calculating adjusted R
+# qmean or choose one column e.g. q0.75
+q_col: 
+ - q0.75
+ - qmean
+n_permutations: 10000
+fdr_threshold: 0.10
+
+
+signed_community_detection_path: /well/legacy/users/pps914/packages/pipe_cnmf/trial_module_detection/signed-community-detection-1.1.1.jar
