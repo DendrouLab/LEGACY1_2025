@@ -1,0 +1,310 @@
+---
+title: "LEGACY1_serologyAnalysis"
+output: console
+---
+
+
+```{r}
+options(bitmapType='cairo-png')
+
+library(dittoSeq)
+library(dplyr)
+library(SingleR)
+library(SingleCellExperiment)
+library(Seurat)
+library(qs)
+library(readxl)
+library(data.table)
+library(ggpubr)
+
+out_dir <- ""
+```
+
+# Serology data
+## Importing
+```{r}
+#dat <- read.csv("RawData_SystemsSerology.csv")
+
+dat_long <- reshape2::melt(dat,
+  id.vars = c("sample_id", "donor_id", "visit_id", "strain"),
+  measure.vars = c("IgG", "IgG1", "IgG2", "IgG3", "IgG4", "IgM", "IgA1", "IgA2", "X2a131His", "X2a167Arg", "X2a131His_167Arg", "X3a176V", "X3a176F", "X3a176V_176F", "X2b", "X3b"),
+  variable.name = "measurement",
+  value.name = "value"
+)
+
+
+dat_final <- tidyr::pivot_wider(dat_long,
+                       id_cols = c(donor_id, strain, measurement),
+                       names_from = visit_id,
+                       values_from = value)
+
+dat_final <- subset(dat_final, measurement %in% c("IgG1", "IgG2", "IgG3", "IgG4", "IgM", "IgA1", "IgA2"))
+
+# Calculate fold-change and log2(fold-change)
+dat_final$v5_FC_v2 <- dat_final$V5/dat_final$V2
+dat_final$v4_FC_v2 <- dat_final$V4/dat_final$V2
+dat_final$v5_FC_v3 <- dat_final$V5/dat_final$V3
+dat_final$v4_FC_v3 <- dat_final$V4/dat_final$V3
+
+dat_final$log2_v5_FC_v2 <- log(dat_final$V5/dat_final$V2, base = 2)
+dat_final$log2_v4_FC_v2 <- log(dat_final$V4/dat_final$V2, base = 2)
+dat_final$log2_v5_FC_v3 <- log(dat_final$V5/dat_final$V3, base = 2)
+dat_final$log2_v4_FC_v3 <- log(dat_final$V4/dat_final$V3, base = 2)
+
+# Change measurement factor levels
+dat_final$measurement <- factor(dat_final$measurement, levels = c("IgM", "IgG1", "IgG2", "IgG3", "IgG4", "IgA1", "IgA2"))
+dat_final$strain <- factor(dat_final$strain, levels = c("Austria", "Darwin", "Phuket", "Victoria", "H5N1", "H5N8"))
+
+
+## Colours
+COLOURS <- list()
+
+COLOURS[['visitid_vaxtype']] <- c("V2_contralateral" = "#A6CEE3", 
+                                  "V2_ipsilateral" = "#FDBF6F",
+                                  "V4_contralateral" = "#1F78B4", 
+                                  "V4_ipsilateral" = "#FF7F00")
+
+```
+
+## Fold-change serology boxplots
+```{r}
+ggplot(dat_final, aes(x = measurement, y = log2_v5_FC_v3)) +
+  geom_boxplot() + 
+  geom_point(aes(col = donor_id)) +
+  facet_wrap(~strain, ncol = 6) +
+  theme_pubr() +
+  labs(y = "log2(V5/V3)") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust=1), axis.title.x=element_blank())
+ggsave(filename=file.path(out_dir, "Boxplot_FC_log2v5vsv3.pdf"), width = 18, height = 5)
+
+ggplot(dat_final, aes(x = measurement, y = log2_v4_FC_v3)) +
+  geom_boxplot() + 
+  geom_point(aes(col = donor_id)) +
+  facet_wrap(~strain, ncol = 6) +
+  theme_pubr() +
+  labs(y = "log2(V4/V3)") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust=1), axis.title.x=element_blank())
+ggsave(filename=file.path(out_dir, "Boxplot_FC_log2v4vsv3.pdf"), width = 18, height = 5)
+
+```
+
+## Add in metadata
+```{r}
+#metadat <- read.csv("Table1_DemographicsStudyDetails.csv")
+metadat <- metadat[,-1]
+metadat$Vaccine_arm <- gsub("Left Arm", "LH FNA", metadat$Vaccine_arm)
+metadat$Vaccine_arm <- gsub("Right Arm", "RH FNA", metadat$Vaccine_arm)
+
+#us_dat <- read.csv("RawData_USmeasurements_totalcellcounts.csv")[ ,c('donor_id',  "V2_LengthIpsiLN_mm", "V2_LengthContraLN_mm", "V4_LengthIpsiLN_mm", "V4_LengthContraLN_mm", "totalcount_PreVaxIpsi", "totalcount_PreVaxContra", "totalcount_PostVaxIpsi", "totalcount_PostVaxContra")]
+
+metadat <- merge(metadat, us_dat, by = c("donor_id"))
+
+dat_final <- merge(dat_final, metadat, by = "donor_id")
+```
+
+## B. Plotting
+```{r scatterPlot}
+# Single Plot
+strain_plot <- "Darwin"
+measurement_plot <- "IgM"
+var1 <- "days_V4afterV3"
+var2 <- "log2_v4_FC_v3"
+
+dat_final %>% filter(strain == strain_plot, measurement == measurement_plot) %>% ggplot(aes_string(x = var1, y = var2)) +
+  geom_point(aes(col = donor_id)) +
+  geom_smooth(method = lm, se = FALSE, color = "black", linewidth = 0.5) +
+  ggpubr::stat_cor(aes(label = paste(..r.label.., sep = "~~~"))) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust=1)) +
+  labs(subtitle = paste0("Strain: ", strain_plot, " | Measurement: ", measurement_plot))
+
+corr_test_dat <- dat_final %>% filter(strain == strain_plot & measurement == measurement_plot)
+result <- cor.test(corr_test_dat[[var1]], corr_test_dat[[var2]], method = "pearson")
+result
+```
+
+```{r Metadata_corr}
+strains <- c("Austria", "Darwin", "H5N1", "H5N8", "Phuket", "Victoria")
+measurements <- c("IgG1", "IgG2", "IgG3", "IgG4", "IgM", "IgA1", "IgA2")
+
+results_final <- {}
+
+for (strain_plot in strains){
+  for (measurement_plot in measurements){
+    #strain_plot <- "Darwin"
+    #measurement_plot <- "IgG1"
+
+    df <- dat_final %>% filter(strain == strain_plot & measurement == measurement_plot) %>% select(log2_v4_FC_v3, days_V4afterV3, log2_v5_FC_v3, days_V5afterV3, age, BMI, V2_LengthIpsiLN_mm, V2_LengthContraLN_mm, V4_LengthIpsiLN_mm, V4_LengthContraLN_mm)
+    
+    combinations <- combn(names(df), 2, simplify = FALSE)
+    
+    # Run cor.test on each combination
+    results <- lapply(combinations, function(cols) {
+      corr_test_results <- cor.test(df[[cols[1]]], df[[cols[2]]])
+      data.frame(var1 = cols[1], var2 = cols[2], correlation = corr_test_results$estimate, p_value = corr_test_results$p.value)
+    })
+    
+    # Combine all results into a data frame
+    results_df <- do.call(rbind, results)
+    results_df$strain <- strain_plot
+    results_df$measurement <- measurement_plot
+    
+    results_final <- rbind(results_final, results_df)
+    
+  }
+}
+
+# Subset for combinations of interest
+valid_rows <- apply(results_final, 1, function(row) {
+  any(row %in% c("log2_v4_FC_v3", "log2_v5_FC_v3"))
+})
+
+results_final_clean <- results_final[valid_rows, ]
+results_final_clean <- na.omit(results_final_clean)
+
+# Force log2_v*_FC_v3 variables to be in var1 column
+df <- results_final_clean %>%
+  rowwise() %>%
+  mutate(
+    log_val = if_else(grepl("log2_v4_FC_v3|log2_v5_FC_v3", var1), var1, var2),
+    other_val = if_else(grepl("log2_v4_FC_v3|log2_v5_FC_v3", var1), var2, var1)
+  ) %>%
+  ungroup() %>%
+  select(log2_FC_var = log_val, comparator_var = other_val)
+
+results_final_clean$var1 <- df$log2_FC_var
+results_final_clean$var2 <- df$comparator_var
+
+colnames(results_final_clean) <- c("log2_FC_var", "comparator_var", "correlation", "p_value", "strain", "measurement")
+
+# Subset out nonsense combinations
+results_final_clean <- subset(results_final_clean, !(log2_FC_var == "log2_v4_FC_v3" & comparator_var == "days_V5afterV3"))
+results_final_clean <- subset(results_final_clean, !(log2_FC_var == "log2_v5_FC_v3" & comparator_var == "days_V4afterV3"))
+
+# multiple corrections
+results_final_clean$p_value_adj <- p.adjust(results_final_clean$p_value, method = "fdr", n = nrow(results_final_clean))
+
+# Export (uploaded on Zenodo)
+write.csv(results_final_clean, file = file.path(out_dir, "Serology_correlation_AbFCvsmetadata_results_padj.csv"), quote = F)
+```
+
+# SCE object
+## Importing object
+```{r}
+sce <- qread("005_year1multi_LEGACY1_annotated_16012024_rna_sce.qs")
+```
+
+# Total B cell abundance
+```{r}
+sce$donorid_visitid_vaxtype <- paste0(sce$donor_id, "_", sce$visit_id, "__", sce$vaccineside_type)
+pl <- dittoBarPlot(sce, "broad_celltype", group.by = "donorid_visitid_vaxtype")
+pl_dat <- pl$data
+
+colnames(pl_dat) <- c("broad_celltype", "donorid_visitid_vaxtype", "count", "total_count", "proportion")
+pl_dat <- tidyr::separate(pl_dat, donorid_visitid_vaxtype, into = c("donor_id", "visit_id", "vaccineside_type"), sep = "_+")
+
+pl_dat <- subset(pl_dat, broad_celltype == "B_cell")
+pl_dat$visitid_vaccinesidetype <- paste0("sceBcellProp_", pl_dat$visit_id, "_", pl_dat$vaccineside_type)
+sce_dat <- pl_dat[,c("donor_id", "visitid_vaccinesidetype", "proportion")]
+
+sce_dat <- tidyr::pivot_wider(sce_dat, names_from = visitid_vaccinesidetype, values_from = proportion)
+
+## Creating final data frame
+serology_dat <- dat_final[, c("donor_id", "strain", "measurement", "log2_v4_FC_v3", "log2_v5_FC_v3", "days_V4afterV3")]
+
+serology_dat <- merge(serology_dat, sce_dat, by = "donor_id")
+
+## Correlations
+strains <- c("Austria", "Darwin", "Phuket", "Victoria")
+measurements <- c("IgG1", "IgG2", "IgG3", "IgG4", "IgM", "IgA1", "IgA2")
+
+results_final2 <- {}
+
+for (strain_plot in strains){
+  for (measurement_plot in measurements){
+    #strain_plot <- "Darwin"
+    #measurement_plot <- "IgG1"
+
+    df <- serology_dat %>% filter(strain == strain_plot & measurement == measurement_plot) %>% select(log2_v4_FC_v3, log2_v5_FC_v3, sceBcellProp_V4_ipsilateral, sceBcellProp_V4_contralateral)
+    
+    combinations <- combn(names(df), 2, simplify = FALSE)
+    
+    # Run cor.test on each combination
+    results <- lapply(combinations, function(cols) {
+      corr_test_results <- cor.test(df[[cols[1]]], df[[cols[2]]], method = "pearson")
+      data.frame(var1 = cols[1], var2 = cols[2], correlation = corr_test_results$estimate, p_value = corr_test_results$p.value)
+    })
+    
+    # Combine all results into a data frame
+    results_df <- do.call(rbind, results)
+    results_df$strain <- strain_plot
+    results_df$measurement <- measurement_plot
+    
+    results_final2 <- rbind(results_final2, results_df)
+    
+  }
+}
+
+# Subset for combinations of interest
+valid_rows2 <- apply(results_final2, 1, function(row) {
+  any(row %in% c("sceBcellProp_V4_ipsilateral", "sceBcellProp_V4_contralateral"))
+})
+
+results_final_clean2 <- results_final2[valid_rows2, ]
+results_final_clean2 <- na.omit(results_final_clean2)
+
+# Force log2_v*_FC_v3 variables to be in var1 column
+df2 <- results_final_clean2 %>%
+  rowwise() %>%
+  mutate(
+    log_val = if_else(grepl("sceBcellProp_V4_ipsilateral|sceBcellProp_V4_contralateral", var1), var1, var2),
+    other_val = if_else(grepl("sceBcellProp_V4_ipsilateral|sceBcellProp_V4_contralateral", var1), var2, var1)
+  ) %>%
+  ungroup() %>%
+  select(sceBcellProp = log_val, comparator_var = other_val)
+
+results_final_clean2$var1 <- df2$sceBcellProp
+results_final_clean2$var2 <- df2$comparator_var
+
+colnames(results_final_clean2) <- c("sceBcellProp", "comparator_var", "correlation", "p_value", "strain", "measurement")
+
+# Subset out sceProp only combos
+results_final_clean2 <- subset(results_final_clean2, !(comparator_var %in% c("sceBcellProp_V4_ipsilateral", "sceBcellProp_V4_contralateral"))) 
+
+# multiple corrections
+results_final_clean2$p_value_adj <- p.adjust(results_final_clean2$p_value, method = "fdr", n = nrow(results_final_clean2))
+
+# Export (uploaded on Zenodo)
+write.csv(results_final_clean2, file = file.path(out_dir, "Serology_correlation_AbFCvsPropBcell_padj.csv"), quote = F)
+
+# Pivot wider
+propB_serology <- results_final_clean2 %>% select(sceBcellProp, comparator_var, correlation, strain, measurement) %>% pivot_wider(names_from = c(sceBcellProp, comparator_var), names_sep = ".", values_from = c(correlation))
+
+# Plot correlations
+propB_serology <- as.data.frame(propB_serology)
+rownames(propB_serology) <- paste0(propB_serology$strain, "_", propB_serology$measurement)
+
+annotation_row <- data.frame(strain = as.factor(propB_serology$strain), measurement = as.factor(propB_serology$measurement))
+rownames(annotation_row) <- rownames(propB_serology)
+
+ann_colors = list(
+    strain = c("Austria" = "blue", "Darwin" = "red", "Phuket" = "darkgreen", "Victoria"= "orange"),
+    measurement = c("IgG1" = "#7570B3","IgG2" = "#E7298A","IgG3" = "#66A61E","IgG4" = "red","IgA1" = "blue","IgA2" = "purple", "IgM" = "orange")
+)
+
+propB_serology <- propB_serology[ , -which(names(propB_serology) %in% c("strain","measurement"))]
+propB_serology <- as.matrix(propB_serology)
+
+pheatmap_cols <- colorRampPalette(c("blue", "white", "red"))(100)
+pheatmap_breaks <- seq(-1, 1, length.out = 101)  # length.out = length(colors) + 1
+
+
+pdf(file = file.path(out_dir, "Summary_HeatmapofCorrelationTotalBPropvsSerology.pdf"), width = 5, height = 10)
+print(
+  pheatmap::pheatmap(propB_serology, scale = "none", clustering_distance_rows = "euclidean", 
+                   annotation_row = annotation_row, annotation_colors = ann_colors, 
+                   cluster_rows = TRUE, cluster_cols = TRUE,
+                   color = pheatmap_cols,
+                   breaks = pheatmap_breaks)
+)
+dev.off()
+```
