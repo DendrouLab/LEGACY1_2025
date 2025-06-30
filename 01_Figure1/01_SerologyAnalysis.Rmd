@@ -308,3 +308,33 @@ print(
 )
 dev.off()
 ```
+
+# ELISA vs HAI
+```{r}
+elisa_dat <- read.csv("/well/legacy/projects/year_01/eBioMed_Revisions/data/serology/RawData_ELISA.csv")
+colnames(elisa_dat) <- c("donor_id", "visit_id", "wholevaccineAg", "Darwin", "Victoria", "Austria", "Phuket")
+
+elisa_dat <- reshape2::melt(elisa_dat,
+  id.vars = c("donor_id", "visit_id"),
+  measure.vars = c("wholevaccineAg", "Darwin", "Victoria", "Austria", "Phuket"),
+  variable.name = "strain",
+  value.name = "elisa_value"
+)
+
+hai_dat <- read.csv("/well/legacy/projects/year_01/eBioMed_Revisions/data/serology/LEGACY1_year1_HAI.csv")
+colnames(hai_dat) <- c("donor_id", "visit_id", "HAI_Ag_long", "strain", "HAI_value")
+
+elisacorr_dat <- merge(hai_dat[,c("donor_id", "visit_id", "strain", "HAI_value")], elisa_dat, by = c("donor_id", "visit_id", "strain"))
+#write.csv(elisacorr_dat, file = file.path(out_dir, "CorrDat_ELISAvsHAI.csv"), quote = F, row.names = F)
+
+ggplot(elisacorr_dat, aes(x = HAI_value, y = elisa_value)) + 
+  geom_smooth(method = "lm", se = FALSE, color = "black") +
+  #stat_cor(method = "pearson", label.x = 1, label.y = 1) +
+  facet_wrap(~strain, ncol = 4, scales = "free") +
+  geom_point(aes(col = donor_id, shape = visit_id)) +
+  scale_x_log10() +
+  scale_y_log10() +
+  theme_pubr()
+ggsave(filename=file.path(out_dir, "CorrPlot_ELISAvsHAI.pdf"), width = 18, height = 6)
+
+```
